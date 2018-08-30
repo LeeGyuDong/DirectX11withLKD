@@ -1,0 +1,101 @@
+////////////////////////////////////////////
+// FileName : BasicTessellation.ds 도메인세이더
+////////////////////////////////////////////
+
+////////////
+// Global
+////////////	
+Texture2D g_BumpMap;
+SamplerState g_SampleType;
+
+cbuffer MatrixBuffer : register(b0)
+{
+	matrix WVPMatrix : packoffset(c0);
+	matrix worldMatrix : packoffset(c4);
+	matrix viewMatrix : packoffset(c8);
+	matrix projectionMatrix : packoffset(c12);
+	matrix VPInverse : packoffset(c16);
+};
+
+cbuffer DomainBuffer : register(b1)
+{
+	float heightScale : packoffset(c0);
+	float enterFaceDirection : packoffset(c1); //-1 이면 안으로 들어가기  0 이면 밖으로 나오기
+	float2 padding : packoffset(c2);
+};
+
+/////////////
+// structure
+/////////////
+struct HullOut
+{
+	float4 position : POSITION;
+	float2 tex : TEXCOORD0;
+	float3 normal : NORMAL;
+	float3 tangent : TANGENT;
+	float3 binormal : BINORMAL;
+	float3 viewRay : TEXCOORD1;
+	float4 worldPosition : TEXCOORD2;
+	float4 localPosition : TEXCOORD3;
+	uint RTlndex : SV_RenderTargetArrayIndex;
+};
+
+struct PixelInputType
+{
+	float4 position : SV_POSITION;
+	float2 tex : TEXCOORD0;
+	float3 normal : NORMAL;
+	float3 tangent : TANGENT;
+	float3 binormal : BINORMAL;
+	float3 viewRay : TEXCOORD1;
+	float4 worldPosition : TEXCOORD2;
+	float4 localPosition : TEXCOORD3;
+	uint RTlndex : SV_RenderTargetArrayIndex;
+};
+
+struct PatchTess
+{
+	float EdgeTess[3] : SV_TessFactor;
+	float InsideTess : SV_InsideTessFactor;
+};
+
+
+///////////////////////
+// Domain Shader
+///////////////////////
+[domain("tri")]
+PixelInputType BasicTessellationDomainShader(PatchTess patchTess, float3 uvw : SV_DomainLocation, const OutputPatch<HullOut, 3> tri)
+{
+	float height;
+	PixelInputType output;
+
+	//보간
+	output.position = (tri[0].position * uvw.x) + (tri[1].position * uvw.y) + (tri[2].position * uvw.z);  
+	output.tex = (tri[0].tex * uvw.x) + (tri[1].tex * uvw.y) + (tri[2].tex * uvw.z);
+	output.normal = (tri[0].normal * uvw.x) + (tri[1].normal * uvw.y) + (tri[2].normal * uvw.z);
+	output.tangent = (tri[0].tangent * uvw.x) + (tri[1].tangent * uvw.y) + (tri[2].tangent * uvw.z);
+	output.binormal = (tri[0].binormal * uvw.x) + (tri[1].binormal * uvw.y) + (tri[2].binormal * uvw.z);
+	output.viewRay = (tri[0].viewRay * uvw.x) + (tri[1].viewRay * uvw.y) + (tri[2].viewRay * uvw.z);
+	output.worldPosition = (tri[0].worldPosition * uvw.x) + (tri[1].worldPosition * uvw.y) + (tri[2].worldPosition * uvw.z);
+	output.localPosition = (tri[0].localPosition * uvw.x) + (tri[1].localPosition * uvw.y) + (tri[2].localPosition * uvw.z);
+	output.RTlndex = 0;
+
+	//정규화
+	output.normal = normalize(output.normal);
+	output.tangent = normalize(output.tangent);
+	output.binormal = normalize(output.binormal);
+	output.viewRay = normalize(output.viewRay);
+
+	//높이값을 가져옴
+	height = g_BumpMap.SampleLevel(g_SampleType, output.tex, 0.0f).r;
+
+	//노말맵과 인풋의 좌표가 모두 월드좌표계이므로 그대로 곱해서 합침
+	output.position = output.position +  float4( ( (heightScale * (height - 1.0f) ) * output.normal), 0.0f) ;
+
+	//이후 변환
+	output.position = mul(output.position, viewMatrix);
+	output.position = mul(output.position, projectionMatrix);
+
+	return output;
+
+}
